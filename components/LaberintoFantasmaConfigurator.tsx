@@ -512,7 +512,7 @@ export default function LaberintoFantasmaConfigurator() {
           </div>
           <div className="p-4 bg-white rounded-2xl shadow">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold">Plano de muros (profe)</hach3>
+              <h3 className="font-semibold">Plano de muros (profe)</h3>
               <button className="px-3 py-1 rounded-lg border"
                       onClick={() => wallsRef.current && downloadCanvasPNG(wallsRef.current, "plano_muros_6x6.png")}>
                 Descargar PNG
