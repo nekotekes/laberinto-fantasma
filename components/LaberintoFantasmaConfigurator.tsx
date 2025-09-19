@@ -1,0 +1,1 @@
+export default function LaberintoFantasmaConfigurator(){return <div>Hola Laberinto</div>}
