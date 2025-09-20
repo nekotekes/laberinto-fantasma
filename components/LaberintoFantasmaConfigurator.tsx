@@ -1,8 +1,28 @@
+"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { getActiveSet } from "@/lib/storage";
+import type { WordSet } from "@/types/content";
+
 
 const ROWS = 6;
 const COLS = 6;
+
+// ---------- NUEVO HELPER ----------
+function getPoolFromActiveOrFallback<T extends { text: string; category: string }>(
+  fallbackDefaultPool: T[]
+): T[] {
+  if (typeof window === "undefined") return fallbackDefaultPool;
+  const active: WordSet | undefined = getActiveSet();
+  if (!active || active.words.length === 0) return fallbackDefaultPool;
+
+  const mapped = active.words.map(w => ({
+    text: w.text,
+    category: active.categories.find(c => c.id === w.categoryId)?.name || "—",
+  })) as T[];
+
+  return mapped.length > 0 ? mapped : fallbackDefaultPool;
+}
 
 // ---------- RNG con semilla ----------
 function mulberry32(a: number) {
