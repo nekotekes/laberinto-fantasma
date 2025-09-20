@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Category, Word, WordSet, AppData } from "@/types/content";
 import { getAppData, saveAppData, setActiveSet } from "@/lib/storage";
-import Papa, { ParseResult } from "papaparse";
+import Papa from "papaparse";
 
 function uid() { return typeof crypto !== "undefined" ? crypto.randomUUID() : Math.random().toString(36).slice(2); }
 
@@ -107,43 +107,45 @@ export default function ManagePage() {
   }
 
   function importCSV(file: File) {
-    if (!currentSet) return;
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (res: any) => { {
-        const rows = res.data as any[];
-        const next = { ...data };
-        const s = next.sets.find(x => x.id === currentSet.id)!;
+  if (!currentSet) return;
 
-        rows.forEach((r) => {
-          const wordText = String(r.word ?? r.palabra ?? "").trim();
-          const catName = String(r.category ?? r.categoria ?? "").trim();
-          if (!wordText) return;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (res: any) => {
+      const rows = res.data as any[];
+      const next = { ...data };
+      const s = next.sets.find(x => x.id === currentSet.id)!;
 
-          let cat = s.categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
-          if (!cat) {
-            if (catName) {
-              cat = { id: uid(), name: catName };
-              s.categories.push(cat);
-            } else {
-              cat = s.categories[0] ?? { id: uid(), name: "Sin categoría" };
-              if (!s.categories.some(c => c.id === cat!.id)) s.categories.push(cat);
-            }
+      rows.forEach((r: any) => {
+        const wordText = String(r.word ?? r.palabra ?? "").trim();
+        const catName  = String(r.category ?? r.categoria ?? "").trim();
+        if (!wordText) return;
+
+        let cat = s.categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+        if (!cat) {
+          if (catName) {
+            cat = { id: uid(), name: catName };
+            s.categories.push(cat);
+          } else {
+            cat = s.categories[0] ?? { id: uid(), name: "Sin categoría" };
+            if (!s.categories.some(c => c.id === cat!.id)) s.categories.push(cat);
           }
+        }
 
-          if (!s.words.some(w => w.text.toLowerCase() === wordText.toLowerCase())) {
-            s.words.push({ id: uid(), text: wordText, categoryId: cat.id });
-          }
-        });
+        if (!s.words.some(w => w.text.toLowerCase() === wordText.toLowerCase())) {
+          s.words.push({ id: uid(), text: wordText, categoryId: cat.id });
+        }
+      });
 
-        s.updatedAt = new Date().toISOString();
-        persist(next);
-        alert("CSV importado correctamente ✅");
-      },
-      error: () => alert("Error al leer el CSV"),
-    });
-  }
+      s.updatedAt = new Date().toISOString();
+      persist(next);
+      alert("CSV importado correctamente ✅");
+    },
+    error: () => alert("Error al leer el CSV"),
+  });
+}
+
 
   function exportSet() {
     if (!currentSet) return;
