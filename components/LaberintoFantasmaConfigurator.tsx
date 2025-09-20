@@ -336,7 +336,7 @@ export default function LaberintoFantasmaConfigurator() {
   function generateAll() {
     // Ahora la imagen es fija; comprobamos que se ha cargado (bgReady)
     if (!imgRef.current || !bgReady) {
-      alert("Cargando imagen de fondo…");
+      // Imagen aún no lista: simplemente no hacer nada
       return;
     }
 
