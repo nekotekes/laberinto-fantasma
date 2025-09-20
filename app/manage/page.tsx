@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { Category, Word, WordSet, AppData } from "@/types/content";
 import { getAppData, saveAppData, setActiveSet } from "@/lib/storage";
+import Papa, { ParseResult } from "papaparse";
 
 function uid() { return typeof crypto !== "undefined" ? crypto.randomUUID() : Math.random().toString(36).slice(2); }
 
@@ -111,7 +112,7 @@ export default function ManagePage() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (res) => {
+      complete: (res: ParseResult<any>) => {
         const rows = res.data as any[];
         const next = { ...data };
         const s = next.sets.find(x => x.id === currentSet.id)!;
