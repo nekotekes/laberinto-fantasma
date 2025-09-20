@@ -8,7 +8,16 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>{children}
+      import Link from "next/link";
+      {/* Pon esto donde tengas la cabecera o similar */}
+      <nav className="p-3 border-b">
+          <ul className="flex gap-4">
+            <li><Link href="/">Juego</Link></li>
+            <li><Link href="/manage">Gestor</Link></li>
+          </ul>
+      </nav>
+      </body>
     </html>
   );
 }
