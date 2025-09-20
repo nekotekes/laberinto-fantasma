@@ -1,35 +1,31 @@
-"use client"; // ← Indicamos que este componente se ejecuta en el navegador (necesario: usa canvas, localStorage, etc.)
+"use client"; // Este componente se ejecuta en el navegador (usa canvas, etc.)
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-// Lector del “conjunto activo” guardado por el gestor /manage (localStorage)
 import { getActiveSet } from "@/lib/storage";
 import type { WordSet } from "@/types/content";
 
-/* 
+/*
   ============================
-  PARÁMETROS GENERALES DEL TABLERO
+  PARÁMETROS DEL TABLERO
   ============================
-  - El tablero es 6x6 casillas (fijo).
 */
 const ROWS = 6;
 const COLS = 6;
 
 /*
   ============================
-  LECTOR DEL CONJUNTO ACTIVO (OPCIONAL)
+  LECTOR DEL CONJUNTO ACTIVO (opcional)
   ============================
-  - Intenta cargar palabras desde el “conjunto activo” del gestor (/manage).
-  - Si no hay conjunto activo, o está vacío, usa la lista por defecto que le pases (fallback).
-  - Devuelve un array de objetos con {text, category}.
+  - Intenta leer palabras desde /manage (conjunto activo) y si no hay, usa fallback.
+  - Aquí no lo usamos directamente, pero lo dejamos documentado por si lo reutilizas.
 */
 function getPoolFromActiveOrFallback<T extends { text: string; category: string }>(
   fallbackDefaultPool: T[]
 ): T[] {
-  if (typeof window === "undefined") return fallbackDefaultPool; // Seguridad: en servidor no hay localStorage
+  if (typeof window === "undefined") return fallbackDefaultPool;
   const active: WordSet | undefined = getActiveSet();
   if (!active || active.words.length === 0) return fallbackDefaultPool;
 
-  // Convertimos el conjunto activo al formato que usa el configurador: { text, category }
   const mapped = active.words.map(w => ({
     text: w.text,
     category: active.categories.find(c => c.id === w.categoryId)?.name || "—",
@@ -40,11 +36,8 @@ function getPoolFromActiveOrFallback<T extends { text: string; category: string 
 
 /*
   ============================
-  ALEATORIEDAD CON SEMILLA (REPRODUCIBLE)
+  ALEATORIEDAD CON SEMILLA (reproducible)
   ============================
-  - Usamos un generador pseudoaleatorio con “semilla” para que, 
-    con la misma semilla, el resultado sea siempre el mismo.
-  - Esto afecta a barajados, generación de muros, selección de objetivos, etc.
 */
 function mulberry32(a: number) {
   return function () {
@@ -55,13 +48,11 @@ function mulberry32(a: number) {
   };
 }
 function seedToInt(s: string) {
-  // Convierte un texto (la semilla) a número (hash) de forma determinista.
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = (h ^ s.charCodeAt(i)) * 16777619;
   return h >>> 0;
 }
 function seededShuffle<T>(arr: T[], seed: string) {
-  // Baraja un array siempre igual para la misma semilla.
   const rand = mulberry32(seedToInt(seed));
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -73,20 +64,12 @@ function seededShuffle<T>(arr: T[], seed: string) {
 
 /*
   ============================
-  TIPOS DE DATOS INTERNOS
+  TIPOS Y UTILIDADES DE LABERINTO
   ============================
-  - CellInfo: lo que dibujamos en cada casilla (texto y categoría).
-  - Edge: representa un borde entre dos casillas (para muros/pasillos).
 */
 interface CellInfo { text: string; cat: string }
 interface Edge { a: [number, number]; b: [number, number] }
 
-/*
-  ============================
-  UTILIDADES DE GRAFOS/ARISTAS DEL LABERINTO
-  ============================
-  - edgeKey / keyToEdge: codifican una arista (borde) como string y viceversa.
-*/
 function edgeKey(a: [number, number], b: [number, number]) {
   const [r1, c1] = a;
   const [r2, c2] = b;
@@ -100,9 +83,6 @@ function keyToEdge(k: string): Edge {
   return { a: [r1, c1], b: [r2, c2] };
 }
 
-/*
-  neighbors: devuelve las casillas vecinas (arriba/abajo/izquierda/derecha) dentro del tablero.
-*/
 function neighbors(r: number, c: number) {
   const out: [number, number][] = [];
   if (r > 0) out.push([r - 1, c]);
@@ -111,11 +91,6 @@ function neighbors(r: number, c: number) {
   if (c < COLS - 1) out.push([r, c + 1]);
   return out;
 }
-
-/*
-  allInternalEdges: genera todas las “aristas” internas posibles del grid 6x6
-  (básicamente, todos los bordes entre celdas adyacentes).
-*/
 function allInternalEdges(): Set<string> {
   const s = new Set<string>();
   for (let r = 0; r < ROWS; r++) {
@@ -129,48 +104,36 @@ function allInternalEdges(): Set<string> {
 
 /*
   ============================
-  GENERACIÓN DEL LABERINTO “PERFECTO” (sin ciclos)
+  GENERACIÓN DEL LABERINTO
   ============================
-  - DFS: vamos “carvando” pasillos desde (0,0) de forma pseudoaleatoria (controlada por semilla).
-  - Retorna el conjunto de MUROS (edges que quedan cerrados).
+  - generatePerfectMaze: crea un “laberinto perfecto” (sin ciclos).
+  - addExtraWalls: añade muros extra sin romper conectividad.
 */
 function generatePerfectMaze(seed: string): Set<string> {
   const rand = mulberry32(seedToInt(seed));
-  const carved = new Set<string>();   // Pasillos abiertos (edges “carvados”)
-  const visited = new Set<string>();  // Celdas visitadas
+  const carved = new Set<string>();   // Pasillos abiertos
+  const visited = new Set<string>();
   const stack: [number, number][] = [[0, 0]];
   visited.add("0,0");
-
   while (stack.length) {
     const [r, c] = stack[stack.length - 1];
     const unvis = neighbors(r, c).filter(([rr, cc]) => !visited.has(`${rr},${cc}`));
     if (unvis.length) {
       const [nr, nc] = unvis[Math.floor(rand() * unvis.length)];
-      carved.add(edgeKey([r, c], [nr, nc])); // Abrimos un pasillo entre actual y el vecino elegido
+      carved.add(edgeKey([r, c], [nr, nc]));
       visited.add(`${nr},${nc}`);
       stack.push([nr, nc]);
-    } else stack.pop(); // Retrocede cuando no haya vecinos nuevos
+    } else stack.pop();
   }
-
-  // Empezamos con todas las aristas y quitamos las “carvadas” => lo que queda son MUROS.
   const all = allInternalEdges();
   for (const k of carved) all.delete(k);
-  return all; // walls
+  return all; // ← devolvemos MUROS (edges cerrados)
 }
-
-/*
-  passagesFromWalls: a partir del conjunto de muros, devuelve los pasillos (edges abiertos).
-*/
 function passagesFromWalls(walls: Set<string>) {
   const all = allInternalEdges();
   for (const w of walls) all.delete(w);
   return all;
 }
-
-/*
-  graphConnected: comprueba si el laberinto es un único componente conectado
-  (que se pueda llegar a todas las celdas desde 0,0).
-*/
 function graphConnected(walls: Set<string>) {
   const passages = passagesFromWalls(walls);
   const adj = new Map<string, string[]>();
@@ -191,20 +154,13 @@ function graphConnected(walls: Set<string>) {
   }
   return seen.size === ROWS * COLS;
 }
-
-/*
-  addExtraWalls: añade muros extra SIN romper la conectividad.
-  - Baraja los pasillos y va cerrando algunos, comprobando que el grafo siga conectado.
-*/
 function addExtraWalls(walls: Set<string>, extra: number, seed: string) {
   const rand = mulberry32(seedToInt(seed) ^ 0x1234abcd);
   const passages = Array.from(passagesFromWalls(walls));
-  // Barajado de pasillos
   for (let i = passages.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [passages[i], passages[j]] = [passages[j], passages[i]];
   }
-  // Cierra pasillos (convierte en muros) si no rompe la conectividad
   let added = 0;
   for (const e of passages) {
     if (added >= extra) break;
@@ -220,22 +176,19 @@ function addExtraWalls(walls: Set<string>, extra: number, seed: string) {
 
 /*
   ============================
-  CSV: CONVERSIÓN ENTRE TEXTO Y CELDAS
+  CSV (conversión texto ⇄ celdas)
   ============================
-  - parseCSV: convierte el textarea (líneas “fila,columna,texto,categoria”) 
-    en una estructura usable por el estado interno.
 */
 function parseCSV(text: string): Array<[number, number, string, string]> {
   return text
-    .split(/\r?\n/)                 // Separa líneas
+    .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean)                // Quita vacías
+    .filter(Boolean)
     .map((line) => {
-      const parts = line.split(","); // Espera como mínimo 4 partes
+      const parts = line.split(",");
       if (parts.length < 4) return null as any;
       const r = parseInt(parts[0], 10);
       const c = parseInt(parts[1], 10);
-      // El texto puede tener comas, así que juntamos todas menos la última (que es la categoría)
       const t = parts.slice(2, parts.length - 1).join(",").trim();
       const cat = parts[parts.length - 1].trim().toLowerCase();
       if (Number.isNaN(r) || Number.isNaN(c)) return null as any;
@@ -245,9 +198,6 @@ function parseCSV(text: string): Array<[number, number, string, string]> {
     .filter(Boolean) as Array<[number, number, string, string]>;
 }
 
-/*
-  downloadCanvasPNG: descarga un canvas como imagen PNG (para imprimir o compartir).
-*/
 function downloadCanvasPNG(canvas: HTMLCanvasElement, filename: string) {
   const url = canvas.toDataURL("image/png");
   const a = document.createElement("a");
@@ -260,65 +210,50 @@ function downloadCanvasPNG(canvas: HTMLCanvasElement, filename: string) {
   ============================
   COMPONENTE PRINCIPAL
   ============================
-  - Esta pantalla permite:
-    1) Cargar/pegar CSV (o usar el conjunto activo).
-    2) Generar el laberinto con semilla y “muros extra”.
-    3) Dibujar el overlay con palabras y el plano de muros.
-    4) Exportar PNGs e instrucciones de colocación.
+  - Cambios importantes respecto a tu versión:
+    · Se ELIMINA el panel 1 (subir imagen).
+    · La imagen de fondo es SIEMPRE /board.png (preparada en /public).
 */
 export default function LaberintoFantasmaConfigurator() {
-  // --------- CONTROLES DE GENERACIÓN ---------
-  const [seed, setSeed] = useState("aula1");   // Semilla para resultados reproducibles
-  const [extraWalls, setExtraWalls] = useState(0); // Muros extra (además del laberinto perfecto)
+  // --------- Controles de generación ---------
+  const [seed, setSeed] = useState("aula1");
+  const [extraWalls, setExtraWalls] = useState(0);
 
-  // --------- IMAGEN DE FONDO (actualmente seleccionable por el usuario) ---------
-  // Si quieres fijar siempre /board.png, más tarde lo cambiamos por una imagen fija cargada automáticamente.
-  const [bgUrl, setBgUrl] = useState<string | null>(null);
+  // --------- Imagen fija: /board.png ---------
+  // Cargamos la imagen de forma oculta; cuando esté lista (bgReady), dibujamos.
+  const BG_SRC = "/board.png";
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const [bgReady, setBgReady] = useState(false);
 
-  // --------- CALIBRACIÓN DE LA REJILLA SOBRE LA IMAGEN ---------
-  // Márgenes (%) para encajar la cuadrícula en la foto del tablero real
+  // --------- Calibración y estilo de overlay ---------
   const [leftPct, setLeftPct] = useState(5);
   const [rightPct, setRightPct] = useState(5);
   const [topPct, setTopPct] = useState(5);
   const [bottomPct, setBottomPct] = useState(5);
 
-  // Apariencia de la rejilla y del texto de las palabras
   const [showGrid, setShowGrid] = useState(true);
   const [gridLW, setGridLW] = useState(1);
   const [fontSize, setFontSize] = useState(16);
   const [textShadow, setTextShadow] = useState(true);
 
-  // --------- ESTADO DE LAS CELDAS (qué palabra y categoría hay en cada casilla) ---------
+  // --------- Contenido del tablero ---------
   const [cells, setCells] = useState<Record<string, { text: string; cat: string }>>({});
-
-  // Lista de categorías detectadas automáticamente a partir de las celdas
   const categories = useMemo(() => {
     const s = new Set<string>();
     Object.values(cells).forEach((v) => s.add(v.cat));
     return Array.from(s.values()).sort();
   }, [cells]);
-
-  // Objetivo de la misión (qué categoría deben encontrar) y cuántas casillas objetivo
   const [targetCat, setTargetCat] = useState<string>("sustantivo");
   const [targetCount, setTargetCount] = useState<number>(3);
 
-  // Muros generados y posiciones objetivo seleccionadas
   const [walls, setWalls] = useState<Set<string>>(new Set());
   const [targets, setTargets] = useState<Array<[number, number]>>([]);
 
-  // Referencias a los lienzos (canvas) donde se dibuja el overlay y el plano de muros
+  // Canvas de salida
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const wallsRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Manejo de la imagen de fondo cuando el usuario la sube
-  function onBgChange(file?: File | null) {
-    if (!file) return setBgUrl(null);
-    const url = URL.createObjectURL(file);
-    setBgUrl(url);
-  }
-
-  // --------- TEXTO CSV DE EJEMPLO (se puede pegar o editar) ---------
+  // --------- Texto CSV de ejemplo ---------
   const [csvText, setCsvText] = useState(() => `0,0,árbol,sustantivo
 0,1,rápido,adjetivo
 0,2,correr,verbo
@@ -356,41 +291,27 @@ export default function LaberintoFantasmaConfigurator() {
 5,4,claro,adjetivo
 5,5,beber,verbo`);
 
-  /*
-    applyCSV: convierte el texto CSV en el mapa de celdas y fija la categoría objetivo por defecto.
-    - Formato esperado por línea: fila,columna,texto,categoria
-  */
+  // Aplica el CSV del textarea a las celdas
   function applyCSV(text: string) {
     const rows = parseCSV(text);
     const map: Record<string, { text: string; cat: string }> = {};
     for (const [r, c, t, cat] of rows) map[`${r},${c}`] = { text: t, cat };
     setCells(map);
-    if (rows.length) setTargetCat(rows[0][3].toLowerCase()); // Por comodidad, coge la categoría de la primera fila
+    if (rows.length) setTargetCat(rows[0][3].toLowerCase());
   }
 
-  /*
-    loadFromActiveSetIntoGrid:
-    - Carga el “conjunto activo” creado en /manage.
-    - Lo baraja con la semilla para que sea reproducible.
-    - Rellena el 6x6 generando un CSV automáticamente (hasta 36 palabras).
-  */
+  // Toma el conjunto activo (de /manage), lo baraja y rellena el 6x6 generando CSV
   function loadFromActiveSetIntoGrid() {
     const active = getActiveSet();
     if (!active || active.words.length === 0) {
       alert("No hay conjunto activo o no tiene palabras. Ve a /manage y marca uno como activo.");
       return;
     }
-
-    // Convertimos las palabras del conjunto activo al formato {text, cat}
     const items = active.words.map(w => ({
       text: w.text,
       cat: (active.categories.find(c => c.id === w.categoryId)?.name || "sin categoría").toLowerCase(),
     }));
-
-    // Barajamos con semilla (repetible)
     const shuffled = seededShuffle(items, seed + "|active");
-
-    // Rellenamos el 6x6 (36 celdas). Si hay menos palabras, deja huecos; si hay más, corta en 36.
     const MAX = ROWS * COLS;
     const picked = shuffled.slice(0, Math.min(MAX, shuffled.length));
     const lines: string[] = [];
@@ -398,57 +319,38 @@ export default function LaberintoFantasmaConfigurator() {
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const it = picked[idx++];
-        if (it) {
-          lines.push(`${r},${c},${it.text},${it.cat}`);
-        } else {
-          // Si quieres marcar huecos, podrías descomentar la siguiente línea:
-          // lines.push(`${r},${c},,`);
-        }
+        if (it) lines.push(`${r},${c},${it.text},${it.cat}`);
       }
     }
-
-    // Pega el CSV generado en el textarea y aplícalo
     const csv = lines.join("\n");
     setCsvText(csv);
     applyCSV(csv);
-
-    // Ajusta la categoría objetivo automáticamente (si hay al menos una palabra)
     const firstCat = picked[0]?.cat;
     if (firstCat) setTargetCat(firstCat);
   }
 
-  // Al montar el componente por primera vez, aplica el CSV inicial de ejemplo
+  // Al montar, aplicamos el CSV inicial
   useEffect(() => { applyCSV(csvText); }, []); // eslint-disable-line
 
-  /*
-    generateAll:
-    - Genera el laberinto con la semilla (y añade muros extra si se ha indicado).
-    - Elige casillas objetivo de la categoría seleccionada (targetCat).
-    - Redibuja overlay (palabras) y plano de muros (para el profe).
-  */
+  // Genera muros y objetivos y redibuja
   function generateAll() {
-    // Comprobamos que la imagen está lista (se sube en el punto 1)
-    if (!imgRef.current || !bgUrl) {
-      alert("Falta la imagen de fondo PNG.");
+    // Ahora la imagen es fija; comprobamos que se ha cargado (bgReady)
+    if (!imgRef.current || !bgReady) {
+      alert("Cargando imagen de fondo…");
       return;
     }
 
-    // 1) Laberinto base
     let w = generatePerfectMaze(seed);
-
-    // 2) Muros extra (sin romper conectividad)
     if (extraWalls > 0) {
       const res = addExtraWalls(w, extraWalls, seed);
       w = res.walls;
     }
     setWalls(w);
 
-    // 3) Selección de casillas objetivo: todas las celdas cuya categoría == targetCat
     const candidates: Array<[number, number]> = Object.entries(cells)
-      .filter(([k, v]) => v.cat === targetCat)
+      .filter(([_, v]) => v.cat === targetCat)
       .map(([k]) => k.split(",").map(Number) as [number, number]);
 
-    // Elegimos targetCount casillas (barajadas con semilla) o todas si hay pocas
     let chosen: Array<[number, number]> = [];
     if (candidates.length <= targetCount) chosen = candidates;
     else {
@@ -457,16 +359,11 @@ export default function LaberintoFantasmaConfigurator() {
     }
     setTargets(chosen);
 
-    // 4) Dibujo de overlay (palabras) y plano de muros
     drawOverlay();
     drawWallsPlan(w);
   }
 
-  /*
-    computeGridBox:
-    - Calcula el rectángulo útil dentro de la imagen (restando márgenes).
-    - Esto permite “encajar” la rejilla del 6x6 encima de la foto real del tablero.
-  */
+  // Caja útil (rejilla) dentro de la imagen
   function computeGridBox(imgW: number, imgH: number) {
     const left = Math.floor(imgW * (leftPct / 100));
     const right = imgW - Math.floor(imgW * (rightPct / 100));
@@ -475,18 +372,12 @@ export default function LaberintoFantasmaConfigurator() {
     return { left, right, top, bottom };
   }
 
-  /*
-    drawOverlay:
-    - Dibuja la imagen de fondo en el canvas y encima:
-      · la rejilla (opcional)
-      · cada palabra centrada en su casilla
-  */
+  // Dibuja overlay con palabras
   function drawOverlay() {
     const img = imgRef.current!;
     const canvas = overlayRef.current!;
     const ctx = canvas.getContext("2d")!;
 
-    // Ajusta el canvas al tamaño real de la imagen para máxima calidad en la exportación
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -498,7 +389,6 @@ export default function LaberintoFantasmaConfigurator() {
     const cellW = gridW / COLS;
     const cellH = gridH / ROWS;
 
-    // Rejilla (líneas)
     if (showGrid) {
       ctx.lineWidth = gridLW;
       ctx.strokeStyle = "#000";
@@ -512,7 +402,6 @@ export default function LaberintoFantasmaConfigurator() {
       }
     }
 
-    // Texto de palabras
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `${fontSize}px sans-serif`;
@@ -524,25 +413,17 @@ export default function LaberintoFantasmaConfigurator() {
         if (!data) continue;
         const x = left + (c + 0.5) * cellW;
         const y = top + (r + 0.5) * cellH;
-
-        // Sombra negra para legibilidad
         if (textShadow) {
           ctx.fillStyle = "rgba(0,0,0,0.8)";
           ctx.fillText(data.text, x + 1, y + 1, cellW * 0.9);
         }
-
-        // Texto principal en blanco (con “wrap” para palabras largas)
         ctx.fillStyle = "white";
         wrapFillText(ctx, data.text, x, y, cellW * 0.9, fontSize * 1.2);
       }
     }
   }
 
-  /*
-    drawWallsPlan:
-    - Sobre otra copia de la imagen, dibuja SOLO los muros (para el profe).
-    - Los muros son “edges” que quedaron cerrados al generar el laberinto.
-  */
+  // Dibuja el plano de muros (para el profe)
   function drawWallsPlan(wallsSet?: Set<string>) {
     const img = imgRef.current!;
     const canvas = wallsRef.current!;
@@ -566,8 +447,6 @@ export default function LaberintoFantasmaConfigurator() {
     for (const k of useWalls) {
       const { a, b } = keyToEdge(k);
       const [r1, c1] = a; const [r2, c2] = b;
-
-      // Si comparten fila → muro vertical entre columnas
       if (r1 === r2) {
         const r = r1;
         const x = left + (Math.min(c1, c2) + 1) * cellW;
@@ -575,7 +454,6 @@ export default function LaberintoFantasmaConfigurator() {
         const y2 = top + (r + 1) * cellH;
         ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
       } else {
-        // Si comparten columna → muro horizontal entre filas
         const c = c1;
         const x1 = left + c * cellW;
         const x2 = left + (c + 1) * cellW;
@@ -585,11 +463,7 @@ export default function LaberintoFantasmaConfigurator() {
     }
   }
 
-  /*
-    wrapFillText:
-    - Dibuja texto multilínea dentro de un ancho máximo.
-    - Corta por palabras y centra verticalmente el bloque de líneas.
-  */
+  // Texto multilínea centrado
   function wrapFillText(
     ctx: CanvasRenderingContext2D,
     text: string,
@@ -598,7 +472,7 @@ export default function LaberintoFantasmaConfigurator() {
     maxWidth: number,
     lineHeight: number
   ) {
-    const words = text.split(/\s+/); // Divide por espacios
+    const words = text.split(/\s+/);
     const lines: string[] = [];
     let line = "";
     for (const w of words) {
@@ -610,64 +484,41 @@ export default function LaberintoFantasmaConfigurator() {
       } else line = test;
     }
     if (line) lines.push(line);
-
     const totalH = lineHeight * lines.length;
     let yy = y - totalH / 2 + lineHeight / 2;
     for (const L of lines) { ctx.fillText(L, x, yy, maxWidth); yy += lineHeight; }
   }
 
-  /*
-    Redibuja overlay y plano si cambia:
-    - La imagen de fondo (bgUrl),
-    - La calibración (márgenes),
-    - La apariencia (rejilla, grosor, fuente, sombra),
-    - O el contenido de celdas.
-  */
+  // Redibuja cuando la imagen ya está cargada (bgReady) o cambian controles/ celdas
   useEffect(() => {
-    if (bgUrl && imgRef.current) { 
-      drawOverlay(); 
-      drawWallsPlan(); 
+    if (bgReady && imgRef.current) {
+      drawOverlay();
+      drawWallsPlan();
     }
-  }, [bgUrl, leftPct, rightPct, topPct, bottomPct, showGrid, gridLW, fontSize, textShadow, cells]); // eslint-disable-line
+  }, [bgReady, leftPct, rightPct, topPct, bottomPct, showGrid, gridLW, fontSize, textShadow, cells]); // eslint-disable-line
 
-  /*
-    ============================
-    RENDER: ESTRUCTURA DE LA PANTALLA
-    ============================
-    - 1) Imagen de fondo (subida por el usuario)
-    - 2) Palabras (CSV o “conjunto activo”)
-    - 3) Misión y laberinto
-    - 4) Calibración de rejilla
-    - Canvases de salida + Tarjeta de misión + Instrucciones para colocar muros
-  */
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-6xl p-4">
         <h1 className="text-2xl font-bold mb-2">Configurador didáctico – Laberinto Fantasma (6×6)</h1>
         <p className="text-sm text-slate-600 mb-6">
-          Overlay con palabras sobre imagen real del tablero y plano de muros ocultos.
+          Overlay con palabras sobre imagen fija del tablero y plano de muros ocultos.
         </p>
 
-        {/* === Panel 1: imagen de fondo === */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="p-4 bg-white rounded-2xl shadow">
-            <h2 className="font-semibold mb-3">1) Imagen de fondo (PNG)</h2>
-            {/* Si más adelante la fijas a /board.png, este input desaparecería */}
-            <input type="file" accept="image/png" onChange={(e) => onBgChange(e.target.files?.[0])} />
-            {bgUrl && (
-              <img
-                ref={imgRef}
-                src={bgUrl}
-                alt="tablero"
-                className="mt-3 w-full rounded-xl border"
-                onLoad={() => { drawOverlay(); drawWallsPlan(); }}
-              />
-            )}
-          </div>
+        {/* Imagen base (OCULTA) que se usa para dibujar en los canvas. Carga /board.png automáticamente. */}
+        <img
+          ref={imgRef}
+          src={BG_SRC}
+          alt="tablero"
+          className="hidden"
+          onLoad={() => { setBgReady(true); drawOverlay(); drawWallsPlan(); }}
+        />
 
-          {/* === Panel 2: palabras y categorías === */}
+        {/* Ajustamos el grid: ahora SON 2 columnas (hemos quitado el panel 1). */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {/* === (1) Palabras y categorías === */}
           <div className="p-4 bg-white rounded-2xl shadow">
-            <h2 className="font-semibold mb-3">2) Palabras y categorías (CSV o pega abajo)</h2>
+            <h2 className="font-semibold mb-3">1) Palabras y categorías (CSV o pega abajo)</h2>
             <textarea
               className="w-full h-40 border rounded-lg p-2 text-sm"
               value={csvText}
@@ -695,9 +546,9 @@ export default function LaberintoFantasmaConfigurator() {
             </div>
           </div>
 
-          {/* === Panel 3: misión (semilla, categoría objetivo, número de objetivos) y muros === */}
+          {/* === (2) Misión y laberinto === */}
           <div className="p-4 bg-white rounded-2xl shadow">
-            <h2 className="font-semibold mb-3">3) Misión y laberinto</h2>
+            <h2 className="font-semibold mb-3">2) Misión y laberinto</h2>
 
             <label className="block text-sm mb-1">Semilla</label>
             <input
@@ -744,9 +595,9 @@ export default function LaberintoFantasmaConfigurator() {
           </div>
         </div>
 
-        {/* === Panel 4: calibración visual de la rejilla sobre la imagen === */}
+        {/* === (3) Calibración de rejilla === */}
         <div className="p-4 bg-white rounded-2xl shadow mb-6">
-          <h2 className="font-semibold mb-3">4) Calibración de rejilla sobre la imagen</h2>
+          <h2 className="font-semibold mb-3">3) Calibración de rejilla sobre la imagen</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -793,7 +644,7 @@ export default function LaberintoFantasmaConfigurator() {
           </div>
         </div>
 
-        {/* === Salidas: Overlay y Plano de muros === */}
+        {/* Salidas (descargables) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 bg-white rounded-2xl shadow">
             <div className="flex items-center justify-between mb-2">
@@ -807,7 +658,6 @@ export default function LaberintoFantasmaConfigurator() {
             </div>
             <canvas ref={overlayRef} className="w-full border rounded-xl" />
           </div>
-
           <div className="p-4 bg-white rounded-2xl shadow">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">Plano de muros (profe)</h3>
@@ -822,12 +672,10 @@ export default function LaberintoFantasmaConfigurator() {
           </div>
         </div>
 
-        {/* === Tarjeta de misión (texto plano para el profe/alumno) === */}
+        {/* Tarjeta de misión */}
         <div className="p-4 bg-white rounded-2xl shadow mt-6">
           <h3 className="font-semibold mb-2">Tarjeta de misión</h3>
-          <div className="text-sm">
-            Categoría: <b>{targetCat}</b> · Objetivos: <b>{targets.length}</b> · Semilla: <code>{seed}</code>
-          </div>
+          <div className="text-sm">Categoría: <b>{targetCat}</b> · Objetivos: <b>{targets.length}</b> · Semilla: <code>{seed}</code></div>
           <ul className="list-disc pl-6 mt-2 text-sm">
             {targets.map(([r, c]) => {
               const t = cells[`${r},${c}`]?.text || "(sin texto)";
@@ -836,7 +684,7 @@ export default function LaberintoFantasmaConfigurator() {
           </ul>
         </div>
 
-        {/* === Instrucciones textuales para colocar muros (por coordenadas) === */}
+        {/* Instrucciones para colocar muros */}
         <div className="p-4 bg-white rounded-2xl shadow mt-6">
           <h3 className="font-semibold mb-2">Instrucciones de colocación de muros</h3>
           <pre className="whitespace-pre-wrap text-sm bg-slate-50 p-3 rounded-xl border">
