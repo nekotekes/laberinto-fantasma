@@ -265,6 +265,49 @@ export default function LaberintoFantasmaConfigurator() {
     if (rows.length) setTargetCat(rows[0][3].toLowerCase());
   }
 
+  function loadFromActiveSetIntoGrid() {
+  const active = getActiveSet();
+  if (!active || active.words.length === 0) {
+    alert("No hay conjunto activo o no tiene palabras. Ve a /manage y marca uno como activo.");
+    return;
+  }
+
+  // Pasamos el conjunto activo al formato { text, cat }
+  const items = active.words.map(w => ({
+    text: w.text,
+    cat: (active.categories.find(c => c.id === w.categoryId)?.name || "sin categoría").toLowerCase(),
+  }));
+
+  // Barajamos con la misma semilla que usas en el tablero, para que sea reproducible
+  const shuffled = seededShuffle(items, seed + "|active");
+
+  // Rellenamos el 6x6: 36 celdas. Si hay más de 36 palabras, cortamos; si hay menos, dejamos huecos vacíos.
+  const MAX = ROWS * COLS;
+  const picked = shuffled.slice(0, Math.min(MAX, shuffled.length));
+  const lines: string[] = [];
+  let idx = 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const it = picked[idx++];
+      if (it) {
+        lines.push(`${r},${c},${it.text},${it.cat}`);
+      } else {
+        // Si faltan palabras, puedes dejar la celda vacía o con marcador.
+        // lines.push(`${r},${c},,`);
+      }
+    }
+  }
+
+  const csv = lines.join("\n");
+  setCsvText(csv);
+  applyCSV(csv);
+
+  // Si podemos, ajustamos la categoría objetivo a la primera categoría encontrada
+  const firstCat = picked[0]?.cat;
+  if (firstCat) setTargetCat(firstCat);
+}
+
+
   useEffect(() => { applyCSV(csvText); }, []); // eslint-disable-line
 
   function generateAll() {
@@ -449,10 +492,18 @@ export default function LaberintoFantasmaConfigurator() {
               onChange={(e) => setCsvText(e.target.value)}
               placeholder="fila,columna,texto,categoria"
             />
-            <div className="mt-2 flex gap-2">
-              <button className="px-3 py-1 rounded-lg bg-slate-900 text-white" onClick={() => applyCSV(csvText)}>Aplicar CSV</button>
-              <button className="px-3 py-1 rounded-lg border" onClick={() => setCsvText("")}>Limpiar</button>
-            </div>
+            <div className="mt-2 flex gap-2 flex-wrap">
+            <button className="px-3 py-1 rounded-lg bg-slate-900 text-white" onClick={() => applyCSV(csvText)}>Aplicar CSV</button>
+            <button className="px-3 py-1 rounded-lg border" onClick={() => setCsvText("")}>Limpiar</button>
+            <button
+                  className="px-3 py-1 rounded-lg border"
+                  title="Usar el conjunto activo guardado en /manage"
+                  onClick={loadFromActiveSetIntoGrid}
+            >
+              Usar conjunto activo
+            </button>
+          </div>
+
             <div className="mt-3 text-xs text-slate-600">
               Detectadas categorías: <b>{categories.join(", ") || "(ninguna)"}</b>
             </div>
