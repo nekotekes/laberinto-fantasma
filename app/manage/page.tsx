@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Papa from "papaparse";
 import { Category, Word, WordSet, AppData } from "@/types/content";
 import { getAppData, saveAppData, setActiveSet } from "@/lib/storage";
 import Papa, { ParseResult } from "papaparse";
