@@ -111,7 +111,7 @@ export default function ManagePage() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (res: ParseResult<any>) => {
+      complete: (res: any) => { {
         const rows = res.data as any[];
         const next = { ...data };
         const s = next.sets.find(x => x.id === currentSet.id)!;
