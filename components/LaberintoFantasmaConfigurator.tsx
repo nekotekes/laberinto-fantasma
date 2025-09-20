@@ -589,8 +589,14 @@ export default function LaberintoFantasmaConfigurator() {
             />
             <div className="text-xs text-slate-600">{extraWalls} muros extra</div>
 
-            <button className="mt-3 w-full px-3 py-2 rounded-lg bg-emerald-600 text-white" onClick={generateAll}>
-              ⚙️ Generar
+            <button
+              className={`mt-3 w-full px-3 py-2 rounded-lg text-white ${
+                bgReady ? "bg-emerald-600" : "bg-gray-400 cursor-not-allowed"
+              }`}
+              onClick={generateAll}
+               disabled={!bgReady}
+            >
+              {bgReady ? "⚙️ Generar" : "Cargando imagen…"}
             </button>
           </div>
         </div>
