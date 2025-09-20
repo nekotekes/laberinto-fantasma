@@ -1,4 +1,5 @@
 import './globals.css'
+import Link from "next/link";
 
 export const metadata = {
   title: "Laberinto Fantasma – Configurador 6×6",
@@ -9,8 +10,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body>{children}
-      import Link from "next/link";
-      {/* Pon esto donde tengas la cabecera o similar */}
+            {/* Pon esto donde tengas la cabecera o similar */}
       <nav className="p-3 border-b">
           <ul className="flex gap-4">
             <li><Link href="/">Juego</Link></li>
